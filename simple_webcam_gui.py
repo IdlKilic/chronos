@@ -8,7 +8,7 @@ from PyQt5.QtGui import QImage, QPixmap
 
 class WebcamApp(QMainWindow):
     def __init__(self):
-        super().__init__()
+        super().__init__() 
         
         # Ana pencere ayarları
         self.setWindowTitle("Webcam Yüz Yaşlandırma")
