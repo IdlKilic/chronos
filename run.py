@@ -7,12 +7,8 @@ from simple_webcam_gui import WebcamApp
 def main():
     # PyQt uygulamasını başlat
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")  # Modern görünüm
-    
-    # Başlangıç kontrolleri
+    app.setStyle("Fusion")  
     check_requirements()
-    
-    # Ana pencereyi oluştur ve göster
     window = WebcamApp()
     window.show()
     
@@ -28,7 +24,7 @@ def check_requirements():
         device_name = torch.cuda.get_device_name(0) if device_count > 0 else "Unknown"
         print(f"CUDA kullanılabilir: {cuda_available}")
         print(f"Cihaz sayısı: {device_count}")
-        print(f"Cihaz adı: {device_name}")
+        print(f"Cihaz ismi: {device_name}")
     else:
         print("CUDA kullanılamıyor. CPU üzerinde çalışılacak.")
     
@@ -40,7 +36,6 @@ def check_requirements():
         # Alt klasörleri kontrol et (001, 002, ...)
         subfolders = [f for f in os.listdir(cleandataset_dir) 
                        if os.path.isdir(os.path.join(cleandataset_dir, f))]
-        print(f"'{cleandataset_dir}' klasöründe {len(subfolders)} alt klasör bulundu.")
     
     # Model kontrol
     model_dir = "models"
