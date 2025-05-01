@@ -165,7 +165,6 @@ class IPCGAN:
         
         self.G.eval()
         
-        # Normalleştirme parametreleri
         self.mean = torch.FloatTensor([0.5, 0.5, 0.5]).view(1, 3, 1, 1).to(self.device)
         self.std = torch.FloatTensor([0.5, 0.5, 0.5]).view(1, 3, 1, 1).to(self.device)
     
@@ -185,7 +184,7 @@ class IPCGAN:
         """Yüzde görünen yaşı basit bir şekilde tahmin eder"""
         gray = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
         
-        # Basit bir yaş tahmini (parlaklık ve kontrast bazlı)
+   
         brightness = np.mean(gray)
         contrast = np.std(gray)
         
