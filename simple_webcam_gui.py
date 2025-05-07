@@ -8,7 +8,6 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel,
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap
 
-# GAN modelini import et
 from paste2 import IPCGAN, FaceDetector
 
 class WebcamApp(QMainWindow):
@@ -19,16 +18,16 @@ class WebcamApp(QMainWindow):
         
     def init_ui(self):
         """Kullanıcı arayüzünü hazırlar."""
-        # Ana pencere ayarları
+
         self.setWindowTitle("Chronos - Yüz Yaşlandırma")
         self.setGeometry(100, 100, 1000, 600)
         
-        # Ana widget ve layout
+
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
         
-        # Görüntü alanları
+
         self.setup_image_area()
         
         # Kontrol paneli
