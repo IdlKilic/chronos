@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 
 class ResidualBlock(nn.Module):
-    """Kalıntı (Residual) Blok"""
+   
     def __init__(self, dim):
         super(ResidualBlock, self).__init__()
         self.res_block = nn.Sequential(
@@ -77,7 +77,7 @@ class Generator(nn.Module):
         )
 
     def forward(self, x, c):
-        # Yaş bilgisini işle
+       
         c_embed = self.age_mlp(c)
         c_embed = c_embed.view(c_embed.size(0), c_embed.size(1), 1, 1)
         c_embed = c_embed.repeat(1, 1, x.size(2), x.size(3))
