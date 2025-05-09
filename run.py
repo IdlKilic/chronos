@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import QApplication
 from simple_webcam_gui import WebcamApp
 
 def main():
-    # PyQt uygulamasını başlat
+    # PyQt uygulamasını başlatma fonksiyonu
     app = QApplication(sys.argv)
     app.setStyle("Fusion")  
     check_requirements()
