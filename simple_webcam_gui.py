@@ -2,147 +2,592 @@ import sys
 import os
 import cv2
 import numpy as np
+from abc import ABC, abstractmethod
+from enum import Enum
+from typing import Dict, List, Tuple, Optional, Any, Callable
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel, 
                              QPushButton, QVBoxLayout, QHBoxLayout, QComboBox,
-                             QGroupBox, QMessageBox, QFileDialog, QProgressBar)
-from PyQt5.QtCore import Qt, QTimer
+                             QGroupBox, QMessageBox, QFileDialog, QProgressBar,
+                             QFrame, QSplitter)
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QObject
 from PyQt5.QtGui import QImage, QPixmap
 
-from paste2 import IPCGAN, FaceDetector
+# Paste modülünü içe aktar
+from paste import IPCGAN, FaceDetector
 
-class WebcamApp(QMainWindow):
+
+# Observer Pattern için gerekli arayüz
+class Observer(ABC):
+    @abstractmethod
+    def update(self, *args, **kwargs):
+        pass
+
+
+# Subject interface for the Observer pattern
+class Subject(ABC):
+    @abstractmethod
+    def register_observer(self, observer: Observer):
+        pass
+    
+    @abstractmethod
+    def remove_observer(self, observer: Observer):
+        pass
+    
+    @abstractmethod
+    def notify_observers(self, *args, **kwargs):
+        pass
+
+
+# Strategy Pattern için yaşlandırma stratejisi arabirimi
+class AgingStrategy(ABC):
+    @abstractmethod
+    def age_face(self, face_img, detector, model):
+        pass
+
+
+# Farklı yaşlandırma stratejileri
+class AgeBy10Years(AgingStrategy):
+    def age_face(self, face_img, detector, model):
+        return model.age_face(face_img, 0)  # 0 indeksi +10 yıl
+
+
+class AgeBy20Years(AgingStrategy):
+    def age_face(self, face_img, detector, model):
+        return model.age_face(face_img, 1)  # 1 indeksi +20 yıl
+
+
+class AgeBy30Years(AgingStrategy):
+    def age_face(self, face_img, detector, model):
+        return model.age_face(face_img, 2)  # 2 indeksi +30 yıl
+
+
+class AgeBy40Years(AgingStrategy):
+    def age_face(self, face_img, detector, model):
+        return model.age_face(face_img, 3)  # 3 indeksi +40 yıl
+
+
+class AgeBy50Years(AgingStrategy):
+    def age_face(self, face_img, detector, model):
+        return model.age_face(face_img, 4)  # 4 indeksi +50 yıl
+
+
+# Factory Pattern için strateji fabrikası
+class AgingStrategyFactory:
+    @staticmethod
+    def create_strategy(years: int) -> AgingStrategy:
+        strategies = {
+            10: AgeBy10Years(),
+            20: AgeBy20Years(),
+            30: AgeBy30Years(),
+            40: AgeBy40Years(),
+            50: AgeBy50Years()
+        }
+        return strategies.get(years, AgeBy10Years())  # Varsayılan olarak 10 yıl
+
+
+# Facade Pattern için kamera işlemlerini yöneten sınıf
+class CameraManager:
+    def __init__(self, frame_callback: Callable):
+        self.webcam = None
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._update_frame)
+        self.frame_callback = frame_callback
+        self.is_running = False
+    
+    def start(self) -> bool:
+        if self.is_running:
+            return True
+            
+        self.webcam = cv2.VideoCapture(0)
+        
+        if not self.webcam.isOpened():
+            return False
+        
+        self.timer.start(30)  # ~33 FPS
+        self.is_running = True
+        return True
+    
+    def stop(self) -> None:
+        self.timer.stop()
+        if self.webcam and self.webcam.isOpened():
+            self.webcam.release()
+        self.is_running = False
+    
+    def is_camera_running(self) -> bool:
+        return self.is_running
+    
+    def _update_frame(self) -> None:
+        if not self.webcam:
+            return
+            
+        ret, frame = self.webcam.read()
+        
+        if not ret:
+            self.stop()
+            return
+        
+        # Ayna efekti
+        frame = cv2.flip(frame, 1)
+        
+        # Callback fonksiyonunu çağır
+        self.frame_callback(frame)
+
+
+# Command Pattern için komut arabirimi
+class Command(ABC):
+    @abstractmethod
+    def execute(self):
+        pass
+
+
+# Yaşlandırma komutu
+class AgeFaceCommand(Command):
+    def __init__(self, processor, strategy: AgingStrategy):
+        self.processor = processor
+        self.strategy = strategy
+    
+    def execute(self):
+        self.processor.set_aging_strategy(self.strategy)
+        self.processor.process_current_face()
+
+
+# Ekran görüntüsü alma komutu
+class TakeScreenshotCommand(Command):
+    def __init__(self, app):
+        self.app = app
+    
+    def execute(self):
+        self.app.save_screenshots()
+
+
+# Kamera başlatma/durdurma komutu
+class ToggleCameraCommand(Command):
+    def __init__(self, app):
+        self.app = app
+    
+    def execute(self):
+        self.app.toggle_camera()
+
+
+# Resim yükleme komutu
+class LoadImageCommand(Command):
+    def __init__(self, app):
+        self.app = app
+    
+    def execute(self):
+        self.app.load_image_from_file()
+
+
+# Model yükleme komutu
+class LoadModelCommand(Command):
+    def __init__(self, app):
+        self.app = app
+    
+    def execute(self):
+        self.app.load_model_from_file()
+
+
+# Mediator Pattern - UI bileşenleri arasında iletişimi yönetir
+class UIMediator:
     def __init__(self):
+        self.components = {}
+    
+    def register_component(self, name: str, component: Any) -> None:
+        self.components[name] = component
+    
+    def notify(self, sender: str, event: str, data: Any = None) -> None:
+        # Özel olayları işle
+        if event == "model_loaded":
+            if "model_status" in self.components:
+                self.components["model_status"].setText(f"Model Durumu: {data}")
+            if "progress_bar" in self.components:
+                self.components["progress_bar"].setValue(100 if data == "Yüklendi" else 0)
+            if "age_buttons" in self.components:
+                for button in self.components["age_buttons"]:
+                    button.setEnabled(data == "Yüklendi")
+        
+        elif event == "camera_toggled":
+            if "camera_button" in self.components:
+                self.components["camera_button"].setText(
+                    "Kamerayı Durdur" if data else "Kamerayı Başlat")
+            if "webcam_label" in self.components:
+                if not data:  # Kamera kapalıysa
+                    self.components["webcam_label"].setText("Webcam bağlantısı bekleniyor...")
+        
+        elif event == "face_aged":
+            if "aged_label" in self.components and data is not None:
+                aged_img = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+                self._display_image(aged_img, self.components["aged_label"])
+        
+        elif event == "face_detected":
+            if "original_face_label" in self.components and data is not None:
+                face_img = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+                self._display_image(face_img, self.components["original_face_label"])
+    
+    def _display_image(self, img: np.ndarray, label: QLabel) -> None:
+        if img.dtype != np.uint8:
+            img = (img * 255).astype(np.uint8)
+            
+        height, width = img.shape[:2]
+        bytes_per_line = 3 * width
+        q_img = QImage(img.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        
+        pixmap = QPixmap.fromImage(q_img)
+        label.setPixmap(pixmap.scaled(
+            label.width(), 
+            label.height(), 
+            Qt.KeepAspectRatio, 
+            Qt.SmoothTransformation
+        ))
+
+
+# Görüntü işleme sınıfı
+class ImageProcessor(Subject):
+    def __init__(self, mediator: UIMediator):
+        self.face_detector = FaceDetector()
+        self.gan_model = None
+        self.current_frame = None
+        self.current_face = None
+        self.current_face_rect = None
+        self.aging_strategy = AgeBy10Years()  # Varsayılan strateji
+        self.mediator = mediator
+        self.observers = []
+    
+    def register_observer(self, observer: Observer) -> None:
+        if observer not in self.observers:
+            self.observers.append(observer)
+    
+    def remove_observer(self, observer: Observer) -> None:
+        if observer in self.observers:
+            self.observers.remove(observer)
+    
+    def notify_observers(self, *args, **kwargs) -> None:
+        for observer in self.observers:
+            observer.update(*args, **kwargs)
+    
+    def set_model(self, model: IPCGAN) -> None:
+        self.gan_model = model
+        self.notify_observers("model_updated", self.gan_model)
+    
+    def set_aging_strategy(self, strategy: AgingStrategy) -> None:
+        self.aging_strategy = strategy
+    
+    def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, List]:
+        # Görüntüyü kaydet
+        self.current_frame = frame.copy()
+        
+        # Yüz tespiti
+        detected_faces = self.face_detector.detect_faces(frame)
+        
+        # Algılanan yüzleri çerçeve içine al
+        for (x, y, w, h) in detected_faces:
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+        
+        # Yüz tespit edildiyse ve model yüklüyse yaşlandırma işlemini yap
+        if detected_faces and self.gan_model is not None:
+            # İlk yüzü al
+            face_rect = detected_faces[0]
+            
+            # Yüzü çıkar
+            face_img, face_rect = self.face_detector.extract_face(frame, face_rect)
+            
+            # Yüzü kaydet
+            self.current_face = face_img
+            self.current_face_rect = face_rect
+            
+            # Mediator'a yüz tespit edildiğini bildir
+            self.mediator.notify("processor", "face_detected", self.current_face)
+            
+            # Yaşlandırma işlemini gerçekleştir
+            self.process_current_face()
+        
+        return frame, detected_faces
+    
+    def process_current_face(self) -> None:
+        if self.current_face is None or self.gan_model is None:
+            return
+        
+        try:
+            # Strateji desenini kullanarak yaşlandırma işlemi yap
+            aged_face = self.aging_strategy.age_face(
+                self.current_face, self.face_detector, self.gan_model)
+            
+            # Mediator'a yaşlandırılmış yüzü bildir
+            self.mediator.notify("processor", "face_aged", aged_face)
+            
+            # Observer'lara bildir
+            self.notify_observers("face_aged", aged_face)
+            
+        except Exception as e:
+            print(f"Yaşlandırma hatası: {str(e)}")
+    
+    def load_and_process_image(self, file_path: str) -> bool:
+        try:
+            img = cv2.imread(file_path)
+            
+            if img is None:
+                return False
+            
+            # Resmi işle
+            processed_img, detected_faces = self.process_frame(img)
+            
+            return bool(detected_faces)
+            
+        except Exception as e:
+            print(f"Resim işleme hatası: {str(e)}")
+            return False
+
+
+# UI Bileşenleri
+class ImageDisplay(QWidget):
+    def __init__(self, title: str, mediator: UIMediator, component_name: str):
         super().__init__()
-        self.init_ui()
-        self.init_variables()
+        self.mediator = mediator
         
-    def init_ui(self):
-        """Kullanıcı arayüzünü hazırlar."""
+        self.layout = QVBoxLayout(self)
+        
+        self.title_label = QLabel(title)
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setStyleSheet("font-weight: bold;")
+        
+        self.image_label = QLabel("Görüntü bekleniyor...")
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setMinimumSize(320, 240)
+        self.image_label.setStyleSheet(
+            "border: 2px solid #888888; background-color: #222222; color: white;")
+        
+        self.layout.addWidget(self.title_label)
+        self.layout.addWidget(self.image_label)
+        
+        # Mediator'a kaydol
+        mediator.register_component(component_name, self.image_label)
 
-        self.setWindowTitle("Chronos - Yüz Yaşlandırma")
-        self.setGeometry(100, 100, 1000, 600)
-        
 
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        self.main_layout = QVBoxLayout(self.central_widget)
+class AgingControls(QGroupBox):
+    def __init__(self, mediator: UIMediator, commands: Dict[str, Command]):
+        super().__init__("Yaşlandırma Seçenekleri")
+        self.mediator = mediator
+        self.commands = commands
         
-
-        self.setup_image_area()
+        self.layout = QVBoxLayout(self)
         
-        # Kontrol paneli
-        self.setup_control_panel()
+        # Yaşlandırma butonları
+        self.age_buttons_layout = QHBoxLayout()
+        self.age_buttons = []
         
-        # Ana layout'u tamamla
-        self.main_layout.addLayout(self.video_layout, 3)  # 3 birim ağırlık
-        self.main_layout.addLayout(self.controls_layout, 1)  # 1 birim ağırlık
-    
-    def setup_image_area(self):
-        """Görüntü alanlarını hazırlar."""
-        self.video_layout = QHBoxLayout()
+        for years in [10, 20, 30, 40, 50]:
+            button = QPushButton(f"+{years} Yaş")
+            button.setEnabled(False)  # Model yüklenene kadar devre dışı
+            button.clicked.connect(lambda checked, y=years: self.on_age_button_clicked(y))
+            self.age_buttons.append(button)
+            self.age_buttons_layout.addWidget(button)
         
-        # Orijinal webcam görüntüsü
-        self.webcam_label = QLabel("Webcam bağlantısı bekleniyor...")
-        self.webcam_label.setAlignment(Qt.AlignCenter)
-        self.webcam_label.setMinimumSize(480, 360)
-        self.webcam_label.setStyleSheet("border: 2px solid #888888; background-color: #222222; color: white;")
+        self.layout.addLayout(self.age_buttons_layout)
         
-        # Yaşlandırılmış görüntü
-        self.aged_label = QLabel("Yaşlandırılmış görüntü")
-        self.aged_label.setAlignment(Qt.AlignCenter)
-        self.aged_label.setMinimumSize(480, 360)
-        self.aged_label.setStyleSheet("border: 2px solid #888888; background-color: #222222; color: white;")
+        # Mediator'a butonları kaydol
+        mediator.register_component("age_buttons", self.age_buttons)
         
-        # Görüntüleri layout'a ekle
-        self.video_layout.addWidget(self.webcam_label)
-        self.video_layout.addWidget(self.aged_label)
-    
-    def setup_control_panel(self):
-        """Kontrol panelini hazırlar."""
-        self.controls_layout = QHBoxLayout()
-        
-        # Yaşlandırma seçenekleri
-        self.setup_aging_controls()
-        
-        # Kamera kontrolleri
-        self.setup_camera_controls()
-        
-        # Kontrol gruplarını ana layout'a ekle
-        self.controls_layout.addWidget(self.aging_group)
-        self.controls_layout.addWidget(self.camera_group)
-    
-    def setup_aging_controls(self):
-        """Yaşlandırma kontrollerini hazırlar."""
-        self.aging_group = QGroupBox("Yaşlandırma Seçenekleri")
-        self.aging_layout = QVBoxLayout(self.aging_group)
-        
-        # Yaşlandırma seçenekleri açılır menüsü
-        self.aging_combo = QComboBox()
-        self.aging_combo.addItems(["10 Yıl Yaşlandır", "20 Yıl Yaşlandır", "40 Yıl Yaşlandır"])
-        self.aging_combo.currentIndexChanged.connect(self.on_aging_changed)
-        self.aging_layout.addWidget(self.aging_combo)
-        
-        # Model yükleme durumu
+        # Model durumu
         self.model_status = QLabel("Model Durumu: Yüklenmedi")
-        self.aging_layout.addWidget(self.model_status)
+        self.layout.addWidget(self.model_status)
+        
+        # Mediator'a model durumunu kaydol
+        mediator.register_component("model_status", self.model_status)
         
         # Model yükleme butonu
         self.load_model_button = QPushButton("Model Yükle")
-        self.load_model_button.clicked.connect(self.load_model)
-        self.aging_layout.addWidget(self.load_model_button)
+        self.load_model_button.clicked.connect(self.on_load_model_clicked)
+        self.layout.addWidget(self.load_model_button)
         
         # Yükleme çubuğu
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.aging_layout.addWidget(self.progress_bar)
+        self.layout.addWidget(self.progress_bar)
+        
+        # Mediator'a progress bar'ı kaydol
+        mediator.register_component("progress_bar", self.progress_bar)
     
-    def setup_camera_controls(self):
-        """Kamera kontrollerini hazırlar."""
-        self.camera_group = QGroupBox("Kamera Kontrolleri")
-        self.camera_layout = QVBoxLayout(self.camera_group)
+    def on_age_button_clicked(self, years: int) -> None:
+        command_key = f"age_{years}"
+        if command_key in self.commands:
+            self.commands[command_key].execute()
+    
+    def on_load_model_clicked(self) -> None:
+        if "load_model" in self.commands:
+            self.commands["load_model"].execute()
+
+
+class CameraControls(QGroupBox):
+    def __init__(self, mediator: UIMediator, commands: Dict[str, Command]):
+        super().__init__("Kamera Kontrolleri")
+        self.mediator = mediator
+        self.commands = commands
+        
+        self.layout = QVBoxLayout(self)
         
         # Kamera başlat/durdur butonu
         self.camera_button = QPushButton("Kamerayı Başlat")
-        self.camera_button.clicked.connect(self.toggle_camera)
-        self.camera_layout.addWidget(self.camera_button)
+        self.camera_button.clicked.connect(self.on_camera_button_clicked)
+        self.layout.addWidget(self.camera_button)
+        
+        # Mediator'a kamera butonunu kaydol
+        mediator.register_component("camera_button", self.camera_button)
         
         # Ekran görüntüsü butonu
         self.screenshot_button = QPushButton("Ekran Görüntüsü Al")
-        self.screenshot_button.clicked.connect(self.take_screenshot)
-        self.camera_layout.addWidget(self.screenshot_button)
+        self.screenshot_button.clicked.connect(self.on_screenshot_button_clicked)
+        self.layout.addWidget(self.screenshot_button)
         
         # Resim yükle butonu
         self.load_image_button = QPushButton("Resim Yükle")
-        self.load_image_button.clicked.connect(self.load_image)
-        self.camera_layout.addWidget(self.load_image_button)
+        self.load_image_button.clicked.connect(self.on_load_image_button_clicked)
+        self.layout.addWidget(self.load_image_button)
     
-    def init_variables(self):
-        """Değişkenleri başlatır."""
-        # Webcam değişkenleri
-        self.webcam = None
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_frame)
-        self.camera_running = False
+    def on_camera_button_clicked(self) -> None:
+        if "toggle_camera" in self.commands:
+            self.commands["toggle_camera"].execute()
+    
+    def on_screenshot_button_clicked(self) -> None:
+        if "take_screenshot" in self.commands:
+            self.commands["take_screenshot"].execute()
+    
+    def on_load_image_button_clicked(self) -> None:
+        if "load_image" in self.commands:
+            self.commands["load_image"].execute()
+
+
+# Ana uygulama sınıfı
+class WebcamApp(QMainWindow, Observer):
+    def __init__(self):
+        super().__init__()
         
-        # Görüntü işleme değişkenleri
-        self.current_frame = None
-        self.detected_faces = []
-        self.current_face = None
-        self.current_face_rect = None
-        self.aged_face = None
+        # Mediator oluştur
+        self.mediator = UIMediator()
         
-        # GAN model
-        self.gan_model = None
-        self.face_detector = FaceDetector()
-        self.current_age = 0  # 10 yıl yaşlandır (default)
+        # Görüntü işlemcisi oluştur
+        self.processor = ImageProcessor(self.mediator)
+        self.processor.register_observer(self)
+        
+        # Kamera yöneticisi oluştur
+        self.camera_manager = CameraManager(self.on_frame_received)
+        
+        # Komutlar oluştur
+        self.commands = self._create_commands()
+        
+        # UI bileşenlerini başlat
+        self.init_ui()
         
         # Sonuçlar klasörü
         self.results_dir = "results"
         os.makedirs(self.results_dir, exist_ok=True)
     
-    def load_model(self):
-        """GAN modelini yükler."""
+    def _create_commands(self) -> Dict[str, Command]:
+        commands = {
+            "toggle_camera": ToggleCameraCommand(self),
+            "take_screenshot": TakeScreenshotCommand(self),
+            "load_image": LoadImageCommand(self),
+            "load_model": LoadModelCommand(self)
+        }
+        
+        # Yaşlandırma komutları
+        strategies = {
+            10: AgeBy10Years(),
+            20: AgeBy20Years(),
+            30: AgeBy30Years(),
+            40: AgeBy40Years(),
+            50: AgeBy50Years()
+        }
+        
+        for years, strategy in strategies.items():
+            commands[f"age_{years}"] = AgeFaceCommand(self.processor, strategy)
+        
+        return commands
+    
+    def init_ui(self) -> None:
+        self.setWindowTitle("Chronos - Yüz Yaşlandırma")
+        self.setGeometry(100, 100, 1000, 600)
+        
+        # Ana widget ve layout
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.main_layout = QVBoxLayout(self.central_widget)
+        
+        # Görüntü alanı
+        self.image_area = QSplitter(Qt.Horizontal)
+        
+        # Orijinal webcam görüntüsü
+        self.webcam_display = ImageDisplay(
+            "Orijinal Görüntü", self.mediator, "webcam_label")
+        self.image_area.addWidget(self.webcam_display)
+        
+        # Algılanan yüz görüntüsü
+        self.face_display = ImageDisplay(
+            "Algılanan Yüz", self.mediator, "original_face_label")
+        self.image_area.addWidget(self.face_display)
+        
+        # Yaşlandırılmış görüntü
+        self.aged_display = ImageDisplay(
+            "Yaşlandırılmış Görüntü", self.mediator, "aged_label")
+        self.image_area.addWidget(self.aged_display)
+        
+        # Kontrol alanı
+        self.controls_layout = QHBoxLayout()
+        
+        # Yaşlandırma kontrolleri
+        self.aging_controls = AgingControls(self.mediator, self.commands)
+        self.controls_layout.addWidget(self.aging_controls)
+        
+        # Kamera kontrolleri
+        self.camera_controls = CameraControls(self.mediator, self.commands)
+        self.controls_layout.addWidget(self.camera_controls)
+        
+        # Ana layout'a ekle
+        self.main_layout.addWidget(self.image_area, 3)  # 3 birim ağırlık
+        self.main_layout.addLayout(self.controls_layout, 1)  # 1 birim ağırlık
+    
+    def update(self, event_type: str, data: Any) -> None:
+        # Observer pattern - processor'dan gelen güncellemeleri işle
+        if event_type == "model_updated":
+            # Model güncellendiğinde UI'ı güncelle
+            model_status = "Yüklendi" if data is not None else "Yüklenmedi"
+            self.mediator.notify("app", "model_loaded", model_status)
+    
+    def on_frame_received(self, frame: np.ndarray) -> None:
+        # Kameradan gelen çerçeveyi işle
+        processed_frame, _ = self.processor.process_frame(frame)
+        
+        # İşlenmiş çerçeveyi göster
+        processed_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
+        height, width = processed_rgb.shape[:2]
+        bytes_per_line = 3 * width
+        q_img = QImage(processed_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        
+        # Mediator aracılığıyla görüntüyü güncelle
+        webcam_label = self.mediator.components.get("webcam_label")
+        if webcam_label:
+            pixmap = QPixmap.fromImage(q_img)
+            webcam_label.setPixmap(pixmap.scaled(
+                webcam_label.width(), 
+                webcam_label.height(), 
+                Qt.KeepAspectRatio, 
+                Qt.SmoothTransformation
+            ))
+    
+    def toggle_camera(self) -> None:
+        if self.camera_manager.is_camera_running():
+            self.camera_manager.stop()
+            self.mediator.notify("app", "camera_toggled", False)
+        else:
+            success = self.camera_manager.start()
+            if success:
+                self.mediator.notify("app", "camera_toggled", True)
+            else:
+                QMessageBox.critical(self, "Kamera Hatası", 
+                                    "Webcam açılamadı! Kamera bağlantınızı kontrol edin.")
+    
+    def load_model_from_file(self) -> None:
         try:
             # Model dosyasını seç
             model_path, _ = QFileDialog.getOpenFileName(
@@ -152,160 +597,45 @@ class WebcamApp(QMainWindow):
             if not model_path:
                 return
             
-            # İlerleme çubuğunu güncelle
-            self.progress_bar.setValue(10)
+            # Progress bar'ı güncelle
+            progress_bar = self.mediator.components.get("progress_bar")
+            if progress_bar:
+                progress_bar.setValue(10)
+            
+            # Model durumunu güncelle
+            model_status = self.mediator.components.get("model_status")
+            if model_status:
+                model_status.setText("Model Durumu: Yükleniyor...")
+            
+            QApplication.processEvents()  # UI'ı güncelle
             
             # CUDA kullanılabilir mi kontrol et
             import torch
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
             
-            # Model yükleniyor mesajı
-            self.model_status.setText(f"Model Durumu: Yükleniyor... ({device} üzerinde)")
-            QApplication.processEvents()  # UI'yı güncelle
-            
             # Modeli yükle
             self.gan_model = IPCGAN(model_path=model_path, device=device)
             
-            # İlerleme çubuğunu güncelle
-            self.progress_bar.setValue(100)
+            # İşlemciye modeli bildir
+            self.processor.set_model(self.gan_model)
             
-            # Model durumunu güncelle
-            self.model_status.setText(f"Model Durumu: Yüklendi ({device})")
-            self.load_model_button.setEnabled(False)
+            # UI'ı güncelle
+            self.mediator.notify("app", "model_loaded", f"Yüklendi ({device})")
+            
+            # Load model butonunu devre dışı bırak
+            self.aging_controls.load_model_button.setEnabled(False)
             
         except Exception as e:
             # Hata mesajı
-            self.model_status.setText(f"Model Durumu: Hata - {str(e)}")
-            QMessageBox.critical(self, "Model Yükleme Hatası", f"Model yüklenirken hata oluştu: {str(e)}")
-            self.progress_bar.setValue(0)
-    
-    def on_aging_changed(self, index):
-        """Yaşlandırma seçeneği değiştiğinde çağrılır."""
-        self.current_age = index
-        
-        # Eğer yüz tespiti yapılmışsa, yaşlandırma işlemini tekrar yap
-        if self.current_face is not None and self.gan_model is not None:
-            self.age_current_face()
-    
-    def toggle_camera(self):
-        """Kamerayı başlatır veya durdurur."""
-        if not self.camera_running:
-            self.start_camera()
-        else:
-            self.stop_camera()
-    
-    def start_camera(self):
-        """Kamerayı başlatır."""
-        # Kamerayı başlat
-        self.webcam = cv2.VideoCapture(0)  # 0 = varsayılan kamera
-        
-        if not self.webcam.isOpened():
-            QMessageBox.critical(self, "Kamera Hatası", 
-                                "Webcam açılamadı! Kamera bağlantınızı kontrol edin.")
-            return
-        
-        # Kamera açıldıysa
-        self.timer.start(30)  # 30ms aralıklarla (yaklaşık 33fps)
-        self.camera_running = True
-        self.camera_button.setText("Kamerayı Durdur")
-        self.webcam_label.setText("Görüntü yükleniyor...")
-    
-    def stop_camera(self):
-        """Kamerayı durdurur."""
-        self.timer.stop()
-        if self.webcam and self.webcam.isOpened():
-            self.webcam.release()
+            self.mediator.notify("app", "model_loaded", f"Hata - {str(e)}")
+            QMessageBox.critical(self, "Model Yükleme Hatası", 
+                                f"Model yüklenirken hata oluştu: {str(e)}")
             
-        self.camera_running = False
-        self.camera_button.setText("Kamerayı Başlat")
-        self.webcam_label.setText("Webcam bağlantısı bekleniyor...")
-        self.aged_label.setText("Yaşlandırılmış görüntü")
+            progress_bar = self.mediator.components.get("progress_bar")
+            if progress_bar:
+                progress_bar.setValue(0)
     
-    def update_frame(self):
-        """Webcam görüntüsünü günceller."""
-        ret, frame = self.webcam.read()
-        
-        if not ret:
-            self.stop_camera()
-            self.webcam_label.setText("Kamera bağlantısı kesildi!")
-            return
-        
-        # Görüntüyü kaydet
-        self.current_frame = frame.copy()
-        
-        # Ayna efekti (selfie görünümü)
-        frame = cv2.flip(frame, 1)
-        
-        # Yüz tespiti ve yaşlandırma işlemi
-        self.process_frame(frame)
-        
-        # Görüntüyü göster (OpenCV BGR -> RGB dönüşümü)
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        self.display_image(frame_rgb, self.webcam_label)
-    
-    def process_frame(self, frame):
-        """Görüntü üzerinde yüz tespiti ve yaşlandırma işlemlerini yapar."""
-        # Yüz tespiti
-        self.detected_faces = self.face_detector.detect_faces(frame)
-        
-        # Algılanan yüzleri çerçeve içine al
-        for (x, y, w, h) in self.detected_faces:
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        
-        # Yüz tespit edildiyse ve model yüklüyse yaşlandırma işlemini yap
-        if len(self.detected_faces) > 0 and self.gan_model is not None:
-            # İlk yüzü al
-            face_rect = self.detected_faces[0]
-            
-            # Yüzü çıkar
-            face_img, face_rect = self.face_detector.extract_face(frame, face_rect)
-            
-            # Yüzü kaydet
-            self.current_face = face_img
-            self.current_face_rect = face_rect
-            
-            # Yaşlandırma işlemi
-            self.age_current_face()
-            
-            # Yaşlandırılmış yüzü göster
-            if self.aged_face is not None:
-                # Yaşlandırılmış yüzü göster
-                aged_img = cv2.cvtColor(self.aged_face, cv2.COLOR_BGR2RGB)
-                self.display_image(aged_img, self.aged_label)
-    
-    def age_current_face(self):
-        """Mevcut yüzü yaşlandırır."""
-        if self.current_face is None or self.gan_model is None:
-            return
-        
-        try:
-            # Yaşlandırma işlemi
-            self.aged_face = self.gan_model.age_face(self.current_face, self.current_age)
-        except Exception as e:
-            print(f"Yaşlandırma hatası: {str(e)}")
-    
-    def display_image(self, img, label):
-        """Görüntüyü QLabel'a gösterir."""
-        # Görüntüyü numpy uint8'e dönüştür
-        if img.dtype != np.uint8:
-            img = (img * 255).astype(np.uint8)
-            
-        # Görüntüyü QImage'e dönüştür
-        height, width = img.shape[:2]
-        bytes_per_line = 3 * width
-        q_img = QImage(img.data, width, height, bytes_per_line, QImage.Format_RGB888)
-        
-        # QPixmap oluştur ve göster
-        pixmap = QPixmap.fromImage(q_img)
-        label.setPixmap(pixmap.scaled(
-            label.width(), 
-            label.height(), 
-            Qt.KeepAspectRatio, 
-            Qt.SmoothTransformation
-        ))
-    
-    def load_image(self):
-        """Disk'ten resim yükler."""
+    def load_image_from_file(self) -> None:
         # Dosya seçme diyaloğu
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Resim Dosyasını Seç", "", "Image Files (*.png *.jpg *.jpeg *.bmp);;All Files (*)"
@@ -314,101 +644,76 @@ class WebcamApp(QMainWindow):
         if not file_path:
             return
         
-        try:
-            # Resmi yükle
-            img = cv2.imread(file_path)
-            
-            if img is None:
-                QMessageBox.warning(self, "Hata", "Resim yüklenemedi!")
-                return
-            
-            # Resmi kaydet ve işle
-            self.current_frame = img.copy()
-            self.process_static_image(img)
-            
-        except Exception as e:
-            QMessageBox.warning(self, "Hata", f"Resim işlenirken hata oluştu: {str(e)}")
-    
-    def process_static_image(self, img):
-        """Yüklenmiş sabit görüntüyü işler."""
-        # Yüz tespiti
-        self.detected_faces = self.face_detector.detect_faces(img)
+        # Resmi işle
+        success = self.processor.load_and_process_image(file_path)
         
-        # Yüz tespit edildiyse
-        if len(self.detected_faces) > 0:
-            # İlk yüzü al ve işle
-            face_rect = self.detected_faces[0]
-            
-            # Yüzü çıkar
-            face_img, face_rect = self.face_detector.extract_face(img, face_rect)
-            
-            # Yüzü kaydet
-            self.current_face = face_img
-            self.current_face_rect = face_rect
-            
-            # Tespit edilen yüzü çerçeve içine al
-            img_with_face = img.copy()
-            for (x, y, w, h) in self.detected_faces:
-                cv2.rectangle(img_with_face, (x, y), (x+w, y+h), (0, 255, 0), 2)
-            
-            # Görüntüyü göster
-            self.display_image(cv2.cvtColor(img_with_face, cv2.COLOR_BGR2RGB), self.webcam_label)
-            
-            # Model yüklüyse yaşlandırma işlemini yap
-            if self.gan_model is not None:
-                self.age_current_face()
-                
-                # Yaşlandırılmış yüzü göster
-                if self.aged_face is not None:
-                    self.display_image(cv2.cvtColor(self.aged_face, cv2.COLOR_BGR2RGB), self.aged_label)
-        else:
-            # Yüz tespit edilmediyse uyarı ver
-            self.webcam_label.setText("Yüz tespit edilemedi!")
-            self.display_image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), self.webcam_label)
+        if not success:
+            QMessageBox.warning(self, "Uyarı", "Resimde yüz tespit edilemedi!")
     
-    def take_screenshot(self):
-        """Ekran görüntüsü alır ve kaydeder."""
-        if self.current_frame is None and not self.camera_running:
-            QMessageBox.warning(self, "Uyarı", "Ekran görüntüsü almak için önce kamerayı başlatın veya resim yükleyin!")
-            return
-            
+    def save_screenshots(self) -> None:
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         # Dosya adları
         original_filename = os.path.join(self.results_dir, f"original_{timestamp}.png")
+        face_filename = os.path.join(self.results_dir, f"face_{timestamp}.png")
         aged_filename = os.path.join(self.results_dir, f"aged_{timestamp}.png")
         
         try:
             # Görüntüleri kaydet
-            self.save_screenshot(original_filename, aged_filename)
-        except Exception as e:
-            QMessageBox.warning(self, "Uyarı", f"Ekran görüntüsü kaydedilirken hata oluştu: {str(e)}")
-    
-    def save_screenshot(self, original_filename, aged_filename):
-        """Görüntüleri dosyaya kaydeder."""
-        # Orijinal görüntüyü kaydet
-        saved_original = False
-        if self.webcam_label.pixmap():
-            self.webcam_label.pixmap().save(original_filename, "PNG")
-            saved_original = True
-        
-        # Yaşlandırılmış görüntüyü kaydet
-        saved_aged = False
-        if self.aged_label.pixmap():
-            self.aged_label.pixmap().save(aged_filename, "PNG")
-            saved_aged = True
+            saved_files = []
             
-        # Bilgi mesajı
-        if saved_original and saved_aged:
-            QMessageBox.information(self, "Bilgi", f"Ekran görüntüleri kaydedildi:\n"
-                                         f"Orijinal: {original_filename}\n"
-                                         f"Yaşlandırılmış: {aged_filename}")
-        elif saved_original:
-            QMessageBox.information(self, "Bilgi", f"Orijinal görüntü kaydedildi: {original_filename}")
+            webcam_label = self.mediator.components.get("webcam_label")
+            if webcam_label and webcam_label.pixmap():
+                webcam_label.pixmap().save(original_filename, "PNG")
+                saved_files.append(f"Orijinal: {original_filename}")
+            
+            face_label = self.mediator.components.get("original_face_label")
+            if face_label and face_label.pixmap():
+                face_label.pixmap().save(face_filename, "PNG")
+                saved_files.append(f"Yüz: {face_filename}")
+            
+            aged_label = self.mediator.components.get("aged_label")
+            if aged_label and aged_label.pixmap():
+                aged_label.pixmap().save(aged_filename, "PNG")
+                saved_files.append(f"Yaşlandırılmış: {aged_filename}")
+            
+            # Bilgi mesajı
+            if saved_files:
+                QMessageBox.information(self, "Bilgi", 
+                                       f"Ekran görüntüleri kaydedildi:\n" + "\n".join(saved_files))
+            else:
+                QMessageBox.warning(self, "Uyarı", "Kaydedilecek görüntü bulunamadı!")
+                
+        except Exception as e:
+            QMessageBox.warning(self, "Uyarı", 
+                               f"Ekran görüntüsü kaydedilirken hata oluştu: {str(e)}")
     
-    def closeEvent(self, event):
-        """Uygulama kapatıldığında kaynakları serbest bırakır."""
-        if self.webcam and self.webcam.isOpened():
-            self.webcam.release()
+    def closeEvent(self, event) -> None:
+        # Kamera varsa kapat
+        self.camera_manager.stop()
         event.accept()
+
+
+# Singleton pattern ile tek bir uygulama instance'ı oluştur
+class AppSingleton:
+    _instance = None
+    
+    @staticmethod
+    def get_instance():
+        if AppSingleton._instance is None:
+            app = QApplication(sys.argv)
+            window = WebcamApp()
+            AppSingleton._instance = (app, window)
+        return AppSingleton._instance
+
+
+# Ana fonksiyon
+def main():
+    app, window = AppSingleton.get_instance()
+    window.show()
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()
