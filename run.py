@@ -510,8 +510,17 @@ class ConfigManager:
 
 # Ana fonksiyon
 def main():
+<<<<<<< HEAD
     # Konfigürasyon Yöneticisini başlat
     config_manager = ConfigManager.get_instance()
+=======
+    # PyQt uygulamasını başlatma fonksiyonu
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")  
+    check_requirements()
+    window = WebcamApp()
+    window.show()
+>>>>>>> 757cc57c4f5abb757f0bc34e9d78f431d3c80716
     
     # Komut Satırı Argümanlarını İşle
     import argparse
