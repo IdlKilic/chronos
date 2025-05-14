@@ -11,24 +11,8 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import cv2
 
-<<<<<<< HEAD
 # Paste modülündeki Generator sınıfını içe aktarıyoruz
 from paste import Generator, ResidualBlock
-=======
-class ResidualBlock(nn.Module):
-   
-    def __init__(self, dim):
-        super(ResidualBlock, self).__init__()
-        self.res_block = nn.Sequential(
-            nn.ReflectionPad2d(1),
-            nn.Conv2d(dim, dim, kernel_size=3, padding=0, bias=False),
-            nn.InstanceNorm2d(dim),
-            nn.ReLU(True),
-            nn.ReflectionPad2d(1),
-            nn.Conv2d(dim, dim, kernel_size=3, padding=0, bias=False),
-            nn.InstanceNorm2d(dim)
-        )
->>>>>>> 757cc57c4f5abb757f0bc34e9d78f431d3c80716
 
 # Discriminator sınıfını tanımlıyoruz
 class Discriminator(nn.Module):
@@ -54,30 +38,6 @@ class Discriminator(nn.Module):
             nn.ReLU(True),
             nn.Linear(512, 16*16)
         )
-<<<<<<< HEAD
-=======
-
-    def forward(self, x, c):
-       
-        c_embed = self.age_mlp(c)
-        c_embed = c_embed.view(c_embed.size(0), c_embed.size(1), 1, 1)
-        c_embed = c_embed.repeat(1, 1, x.size(2), x.size(3))
-        
-        # Encoder
-        x = self.encoder(x)
-        
-        # Downsampling
-        for down_layer in self.downsampling:
-            x = down_layer(x)
-        
-        # Residual bloklar
-        for res_block in self.residual_blocks:
-            x = res_block(x)
-        
-        # Upsampling
-        for up_layer in self.upsampling:
-            x = up_layer(x)
->>>>>>> 757cc57c4f5abb757f0bc34e9d78f431d3c80716
         
         # Çıkış katmanı
         self.conv5 = nn.Conv2d(conv_dim*8 + 1, 1, kernel_size=4, stride=1, padding=1)
