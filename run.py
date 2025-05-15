@@ -8,7 +8,6 @@ from PyQt5.QtWidgets import QApplication, QSplashScreen, QProgressBar, QLabel, Q
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QPixmap
 
-# simple_webcam_gui modülünden WebcamApp sınıfını içe aktar
 from simple_webcam_gui import WebcamApp, AppSingleton
 
 
