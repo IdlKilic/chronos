@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel,
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QObject
 from PyQt5.QtGui import QImage, QPixmap
 
-# Paste modülünü içe aktar
+
 from paste import IPCGAN, FaceDetector
 
 
