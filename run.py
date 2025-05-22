@@ -11,7 +11,6 @@ from PyQt5.QtGui import QPixmap
 from simple_webcam_gui import WebcamApp, AppSingleton
 
 
-# Singleton tasarım deseni için logger sınıfı
 class LoggerSingleton:
     _instance = None
     
