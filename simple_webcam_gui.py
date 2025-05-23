@@ -24,7 +24,7 @@ class Observer(ABC):
         pass
 
 
-# Subject interface for the Observer pattern
+
 class Subject(ABC):
     @abstractmethod
     def register_observer(self, observer: Observer):
